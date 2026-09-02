@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Compile confluence-publish pour Windows (amd64) et macOS (amd64 + arm64).
-# Nécessite Go >= 1.21 et le fichier internal/mermaid/assets/mermaid.min.js
-# (voir scripts/fetch-mermaid.sh).
+# Author: Emmanuel COLUSSI
+# Build confluence-publish for Windows (amd64) and macOS (amd64 + arm64).
+# Requires Go >= 1.21 and internal/mermaid/assets/mermaid.min.js
+# (see scripts/fetch-mermaid.sh).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 if [ ! -f internal/mermaid/assets/mermaid.min.js ]; then
-  echo "internal/mermaid/assets/mermaid.min.js manquant, exécution de fetch-mermaid.sh..."
+  echo "internal/mermaid/assets/mermaid.min.js is missing; running fetch-mermaid.sh..."
   ./scripts/fetch-mermaid.sh
 fi
 
@@ -26,5 +27,5 @@ build darwin  amd64 confluence-publish-darwin-amd64
 build darwin  arm64 confluence-publish-darwin-arm64
 
 echo
-echo "Binaires générés dans dist/ :"
+echo "Binaries generated in dist/:"
 ls -la dist/

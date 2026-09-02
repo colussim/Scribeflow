@@ -1,142 +1,149 @@
 # confluence-publish
 
-Un petit outil en ligne de commande (Go, un seul binaire, Windows + macOS)
-qui publie directement des fichiers Markdown comme pages Confluence via
-l'API REST — sans passer par un copier-coller dans l'éditeur.
+A small command-line tool (Go, a single binary, Windows + macOS) that publishes Markdown files directly as Confluence pages through the REST API.
 
-Ce que ça résout :
+What it solves:
 
-- Le rendu markdown → Confluence est fait correctement (titres, listes,
-  tableaux, code, citations, listes de tâches...), pas approximé par un
-  copier-coller depuis un éditeur markdown.
-- Les diagrammes **Mermaid** (` ```mermaid `) sont rendus en image PNG
-  localement (via Chrome/Edge headless, 100% hors-ligne) et uploadés comme
-  pièce jointe — donc affichés correctement même si votre Confluence n'a
-  pas de plugin Mermaid installé.
-- Les **images locales** référencées dans le markdown (`![alt](./img.png)`)
-  sont automatiquement uploadées comme pièces jointes et liées dans la
-  page.
-- Relancer l'outil sur le même fichier **met à jour** la page existante
-  (au lieu d'en créer une nouvelle), pièces jointes comprises.
+- Markdown is rendered correctly in Confluence (headings, lists, tables, code, quotations, task lists, and more), rather than approximated by copying and pasting from a Markdown editor.
+- **Mermaid** diagrams (` ```mermaid `) are rendered locally as **vector SVG** files (through headless Chrome/Edge, fully offline) and uploaded as attachments. They therefore display correctly even when Confluence has no Mermaid plugin and remain sharp at any zoom level. The SVG includes a solid background (white, or dark with `--theme dark`) so that it remains readable with either a light or dark Confluence theme. Labels use native SVG text instead of embedded HTML (`<foreignObject>`), which many Confluence instances remove for SVG attachment security.
+- **Local images** referenced in Markdown (`![alt](./img.png)`) are uploaded automatically as attachments and linked from the page.
+- Running the tool again on the same file **updates** the existing page and its attachments instead of creating another page.
+- If the generated content and title already match Confluence, the update is skipped. Attachments whose byte size has not changed are skipped as well. This is a practical normalized-text/file-size heuristic rather than a perfect diff, but it covers the common no-change rerun case.
 
-Prérequis Confluence : **Server / Data Center** (API REST v1). Un
-navigateur Chrome, Chromium ou Edge doit être installé sur votre poste
-pour le rendu des diagrammes Mermaid (déjà présent par défaut sur la
-plupart des postes Windows/Mac) — sinon utilisez `--no-mermaid`.
+Confluence requirement: **Server / Data Center** (REST API v1). Chrome, Chromium, or Edge must be installed locally to render Mermaid diagrams. Use `--no-mermaid` when no supported browser is available.
 
 ## Installation
 
-Récupérez le binaire correspondant à votre poste (dossier `dist/`) et
-placez-le où vous voulez, par exemple dans un dossier de votre `PATH` :
+Copy the binary for your platform from `dist/` to a location of your choice, such as a directory in your `PATH`:
 
-- Windows : `confluence-publish-windows-amd64.exe`
-- macOS (Apple Silicon, M1/M2/M3/...) : `confluence-publish-darwin-arm64`
-- macOS (Intel) : `confluence-publish-darwin-amd64`
+- Windows: `confluence-publish-windows-amd64.exe`
+- macOS (Apple Silicon): `confluence-publish-darwin-arm64`
+- macOS (Intel): `confluence-publish-darwin-amd64`
 
-Sur macOS, la première exécution peut demander une autorisation Gatekeeper
-(clic droit → Ouvrir, ou `xattr -d com.apple.quarantine <binaire>`).
+On macOS, Gatekeeper may require approval on first launch (right-click and select Open, or run `xattr -d com.apple.quarantine <binary>`).
 
-Pour recompiler soi-même (nécessite Go >= 1.21) :
+To build from source (Go 1.21 or newer is required):
 
 ```bash
-./scripts/fetch-mermaid.sh   # télécharge mermaid.min.js (une fois)
-./scripts/build.sh           # génère les 3 binaires dans dist/
+./scripts/fetch-mermaid.sh   # download mermaid.min.js once
+./scripts/build.sh           # generate all three binaries in dist/
 ```
 
 ## Configuration
 
-Créez d'abord un **Personal Access Token** dans Confluence (menu profil →
-Paramètres du compte → Personal Access Tokens, sur Server/Data Center),
-puis :
+First create a **Personal Access Token** in Confluence (Profile menu → Account settings → Personal Access Tokens on Server/Data Center), then run:
 
 ```bash
 confluence-publish config set \
-  --base-url https://confluence.monentreprise.com \
-  --token VOTRE_PAT \
+  --base-url https://confluence.example.com \
+  --token YOUR_PAT \
   --space DEV
 ```
 
-`--space` fixe l'espace Confluence par défaut (peut être surchargé par
-fichier). Options utiles supplémentaires :
+`--space` sets the default Confluence space and can be overridden per file. Other useful options:
 
-- `--insecure` : ignore la vérification du certificat TLS (utile pour une
-  instance interne en certificat auto-signé).
-- `--username` / `--password` : authentification basique, si votre
-  instance n'accepte pas les PAT.
-- `--chrome-path` : chemin explicite vers Chrome/Chromium/Edge si l'outil
-  ne le détecte pas automatiquement.
-- `--parent` : page parente par défaut (titre ou id).
+- `--insecure`: disables TLS certificate verification for an internal self-signed instance. Avoid this in production.
+- `--username` / `--password`: basic authentication for instances that do not accept PATs.
+- `--chrome-path`: explicit path to Chrome, Chromium, or Edge when automatic detection fails.
+- `--parent`: default parent page title or ID.
+- `--user-agent`: custom HTTP User-Agent.
 
-La config est stockée dans votre profil utilisateur (`%APPDATA%` sous
-Windows, `~/Library/Application Support` sous macOS), jamais dans le
-dépôt. Vérifiez avec `confluence-publish config show`.
+Configuration is stored in the user profile (`%APPDATA%` on Windows or `~/Library/Application Support` on macOS), never in the repository. Inspect it with `confluence-publish config show`.
 
-## Utilisation
+## Usage
 
-Publier un fichier (crée la page si elle n'existe pas, sinon la met à jour) :
+Publish one file, creating the page when it does not exist and updating it otherwise:
 
 ```bash
-confluence-publish mon-fichier.md
+confluence-publish my-file.md
 ```
 
-Avec des options explicites (remplacent le frontmatter/la config) :
+Explicit options override frontmatter and saved configuration:
 
 ```bash
-confluence-publish mon-fichier.md --space DEV --parent "Documentation technique" --title "Mon titre"
+confluence-publish my-file.md --space DEV --parent "Technical Documentation" --title "My title"
 ```
 
-Publier tout un dossier de fichiers `.md` :
+Publish a flat directory of `.md` files under the same parent:
 
 ```bash
 confluence-publish publish --dir ./docs --recursive
 ```
 
-Voir le résultat sans rien envoyer à Confluence :
+### Publish a directory tree (`--tree`)
+
+Reproduce a local directory structure as a Confluence page hierarchy:
 
 ```bash
-confluence-publish mon-fichier.md --dry-run
+confluence-publish publish --dir ./architecture --tree --space PRJ2043 --parent 447945799
 ```
 
-### Frontmatter (optionnel)
+Rules:
 
-En tête de fichier markdown, un bloc YAML permet de piloter la
-publication sans taper de flags à chaque fois :
+- The directory supplied to `--dir` does not create a page of its own. Its `.md` files become direct children of `--parent`.
+- A subdirectory becomes a page when it contains Markdown content:
+  1. When `_index.md` or `index.md` exists, that file provides the page title and content.
+  2. Otherwise, when at least one `.md` file exists directly in the directory, the tool creates a **container** page. Its title is derived from the directory name (hyphens and underscores become spaces), and a native Confluence children macro supplies its content. Each Markdown file becomes a child page of that container.
+- A directory with no Markdown files, either directly or in an index file, does not create a page. Markdown found deeper in its subdirectories is attached to the current parent.
+- Files and directories are processed together in alphabetical order. Prefix names with two-digit numbers (`01-`, `02-`, … `10-`) for predictable order. Keeping the numeric prefix in the page title is the most reliable way to preserve visual order because Confluence does not always guarantee API insertion order.
+
+Example local tree:
+
+```text
+architecture/
+  01-target-architecture-proposal/
+    new-interoperability-v2.md      -> child of the container page
+    imgs/                           -> no .md: attachments only, no page
+  02-communications-and-routing/
+    routing-plan.md                 -> child of the container page
+  03-security/
+    _index.md                       -> page content, no separate container
+    01-authentication.md            -> child of "03 Security"
+    02-encryption.md                -> child of "03 Security"
+  04-sizing/                        -> empty directory: no page
+```
+
+Always test first with `--dry-run`. Each displayed page includes its planned parent in brackets so that the hierarchy can be checked before anything is sent to Confluence:
+
+```bash
+confluence-publish my-file.md --dry-run
+```
+
+### Frontmatter (optional)
+
+A YAML block at the start of a Markdown file can control publication without requiring flags on every run:
 
 ```markdown
 ---
-title: Ma page
+title: My page
 space: DEV
-parent: 123456          # id OU titre d'une page existante
-page_id: 987654          # optionnel : force la mise à jour de cette page précise
+parent: 123456          # ID or title of an existing page
+page_id: 987654         # optional: force an update of this exact page
 labels: [architecture, backend]
 ---
 
-# Contenu de la page...
+# Page content
 ```
 
-Priorité de résolution : flag CLI > frontmatter > config sauvegardée. Le
-titre, à défaut, est dérivé du nom de fichier.
+Resolution precedence is CLI flag > frontmatter > saved configuration. When no title is specified, it is derived from the filename.
 
-## Limitations connues
+## Known limitations
 
-- HTML brut dans le markdown est ignoré (non converti) plutôt que copié
-  tel quel, pour éviter d'injecter du contenu imprévisible dans la page.
-- Les liens markdown vers d'autres fichiers `.md` du dépôt ne sont pas
-  automatiquement transformés en liens inter-pages Confluence : ils sont
-  publiés tels quels.
-- Le rendu Mermaid dépend d'un Chrome/Chromium/Edge installé localement ;
-  sans navigateur détecté, le diagramme est inséré en bloc de code brut
-  (avec un message d'avertissement) plutôt que d'échouer la publication.
+- Raw HTML in Markdown is ignored instead of copied, preventing unexpected content from being injected into the page.
+- Markdown links to other `.md` files are published unchanged and are not converted automatically into Confluence page links.
+- Mermaid rendering requires a locally installed Chrome, Chromium, or Edge. Without one, diagrams are inserted as raw code blocks with a warning.
+- Mermaid attachment names changed from `.png` to `.svg`. Republishing a page created by an older version does not delete unused PNG attachments; remove them manually from the Confluence attachment list if needed.
+- Unlike strict CommonMark, a single newline in the source becomes a visible line break (`<br/>`) in Confluence. Leave an empty line between text blocks to create a paragraph break.
 
-## Structure du projet
+## Project structure
 
-```
-cmd/confluence-publish/   point d'entrée CLI
-internal/frontmatter/     extraction du bloc YAML en tête de fichier
-internal/mdconvert/       markdown -> storage format Confluence (XHTML)
-internal/mermaid/         rendu mermaid -> PNG via Chrome headless
-internal/confluence/      client REST API v1 (pages, pièces jointes, labels)
-internal/config/          configuration persistée (profil utilisateur)
-examples/                 fichier markdown d'exemple
-scripts/                  scripts de build et de récupération de mermaid.js
+```text
+cmd/confluence-publish/   CLI entry point
+internal/frontmatter/     YAML frontmatter extraction
+internal/mdconvert/       Markdown to Confluence storage-format conversion
+internal/mermaid/         Mermaid to SVG rendering through headless Chrome
+internal/confluence/      REST API v1 client for pages, attachments, and labels
+internal/config/          persistent user-profile configuration
+examples/                 example Markdown files
+scripts/                  build and Mermaid dependency scripts
 ```

@@ -1,5 +1,9 @@
-// Package frontmatter extrait et parse un bloc YAML d'en-tête (frontmatter)
-// placé au début d'un fichier Markdown, délimité par des lignes "---".
+// Author: Emmanuel COLUSSI
+// Copyright (c) 2026 Emmanuel COLUSSI
+// SPDX-License-Identifier: MIT
+//
+// Package frontmatter extracts and parses a YAML frontmatter block placed at
+// the beginning of a Markdown file and delimited by "---" lines.
 package frontmatter
 
 import (
@@ -9,14 +13,13 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// Meta représente les métadonnées optionnelles qu'on peut placer en tête
-// d'un fichier markdown pour piloter la publication Confluence sans avoir
-// à tout passer en flags CLI.
+// Meta contains optional metadata that controls Confluence publication
+// without requiring every value to be passed as a CLI flag.
 //
-// Exemple:
+// Example:
 //
 //	---
-//	title: Ma page
+//	title: My page
 //	space: DEV
 //	parent: 123456
 //	page_id: 987654
@@ -25,13 +28,13 @@ import (
 type Meta struct {
 	Title  string   `yaml:"title"`
 	Space  string   `yaml:"space"`
-	Parent string   `yaml:"parent"`  // titre OU id de la page parente
-	PageID string   `yaml:"page_id"` // si connu, force une mise à jour de cette page
+	Parent string   `yaml:"parent"`  // parent page title or ID
+	PageID string   `yaml:"page_id"` // when known, forces an update of this page
 	Labels []string `yaml:"labels"`
 }
 
-// Split sépare le frontmatter YAML (s'il existe) du reste du contenu markdown.
-// Si aucun frontmatter n'est présent, Meta est retourné à zéro et body == input.
+// Split separates optional YAML frontmatter from the remaining Markdown.
+// When no frontmatter is present, it returns a zero-value Meta and body == input.
 func Split(input []byte) (meta Meta, body []byte, err error) {
 	body = input
 	trimmed := bytes.TrimLeft(input, "\ufeff \t\r\n")
@@ -39,9 +42,9 @@ func Split(input []byte) (meta Meta, body []byte, err error) {
 		return meta, body, nil
 	}
 
-	// Normalise les fins de ligne pour simplifier la recherche du délimiteur.
+	// Normalize line endings to simplify delimiter detection.
 	text := string(trimmed)
-	// La première ligne doit être exactement "---"
+	// The first line must be exactly "---".
 	lines := strings.SplitN(text, "\n", -1)
 	if len(lines) == 0 || strings.TrimRight(lines[0], "\r") != "---" {
 		return meta, body, nil
@@ -55,8 +58,7 @@ func Split(input []byte) (meta Meta, body []byte, err error) {
 		}
 	}
 	if closeIdx == -1 {
-		// Pas de délimiteur fermant trouvé, on considère qu'il n'y a pas
-		// de frontmatter plutôt que d'échouer.
+		// Treat a missing closing delimiter as regular content instead of failing.
 		return meta, body, nil
 	}
 

@@ -1,6 +1,7 @@
-// Command confluence-publish publie un (ou plusieurs) fichier(s) Markdown
-// comme page(s) Confluence via l'API REST, en gérant les images locales et
-// les diagrammes Mermaid (rendus en PNG et uploadés en pièce jointe).
+// Author: Emmanuel COLUSSI
+// Copyright (c) 2026 Emmanuel COLUSSI
+// SPDX-License-Identifier: MIT
+
 package main
 
 import (
@@ -35,49 +36,49 @@ func main() {
 		cmdConfig(os.Args[2:])
 	case "publish":
 		if err := cmdPublish(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "Erreur:", err)
+			fmt.Fprintln(os.Stderr, "Error:", err)
 			os.Exit(1)
 		}
 	default:
-		// Confort : `confluence-publish fichier.md` sans sous-commande.
+		// Convenience form: `confluence-publish file.md` without a subcommand.
 		if err := cmdPublish(os.Args[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, "Erreur:", err)
+			fmt.Fprintln(os.Stderr, "Error:", err)
 			os.Exit(1)
 		}
 	}
 }
 
 func printUsage() {
-	fmt.Print(`confluence-publish - publie du Markdown vers Confluence Server/Data Center
+	fmt.Print(`confluence-publish - publish Markdown to Confluence Server/Data Center
 
 Usage:
   confluence-publish config set --base-url URL --token PAT [--username U --password P] [--insecure] [--space KEY] [--parent REF] [--chrome-path PATH]
   confluence-publish config show
 
-  confluence-publish publish <fichier.md> [options]
-  confluence-publish <fichier.md> [options]          (raccourci de "publish")
+  confluence-publish publish <file.md> [options]
+  confluence-publish <file.md> [options]             (shortcut for "publish")
 
-Options de "publish":
-  --file PATH            fichier markdown (ou 1er argument positionnel)
-  --dir PATH              publie tous les .md du répertoire
-  --recursive             avec --dir, parcourt aussi les sous-répertoires
-  --space KEY             espace Confluence (remplace le frontmatter/config)
-  --parent REF             page parente : titre ou id (remplace le frontmatter/config)
-  --title "Titre"          titre de la page (remplace le frontmatter/nom de fichier)
-  --page-id ID             force la mise à jour de cette page précise
-  --labels a,b,c           labels ajoutés (en plus du frontmatter)
-  --base-url URL           remplace l'URL Confluence de la config
-  --token PAT              remplace le token de la config
-  --username / --password  authentification basique (alternative au token)
-  --insecure               ignore la vérification TLS (certificats internes)
-  --chrome-path PATH       chemin vers Chrome/Chromium/Edge pour le rendu Mermaid
-  --theme NAME             thème mermaid: default|dark|neutral|forest (défaut: default)
-  --no-mermaid             désactive le rendu image des diagrammes mermaid
-  --dry-run                affiche le storage format généré sans appeler l'API
+"publish" options:
+  --file PATH            Markdown file (or first positional argument)
+  --dir PATH             publish every .md file in the directory
+  --recursive            with --dir, include subdirectories
+  --space KEY            Confluence space (overrides frontmatter/config)
+  --parent REF           parent page title or ID (overrides frontmatter/config)
+  --title "Title"        page title (overrides frontmatter/filename)
+  --page-id ID           force an update of this exact page
+  --labels a,b,c         additional labels (in addition to frontmatter)
+  --base-url URL         override the configured Confluence URL
+  --token PAT            override the configured token
+  --username / --password  basic authentication (alternative to a token)
+  --insecure             disable TLS verification (internal certificates)
+  --chrome-path PATH     Chrome/Chromium/Edge path for Mermaid rendering
+  --theme NAME           Mermaid theme: default|dark|neutral|forest (default: default)
+  --no-mermaid           disable Mermaid image rendering
+  --dry-run              print generated storage format without calling the API
 
-Frontmatter markdown reconnu (optionnel, en tête de fichier):
+Supported Markdown frontmatter (optional, at the beginning of the file):
   ---
-  title: Ma page
+  title: My page
   space: DEV
   parent: 123456
   page_id: 987654
@@ -98,7 +99,7 @@ func cmdConfig(args []string) {
 		cfg, err := config.Load()
 		must(err)
 		path, _ := config.Path()
-		fmt.Println("Fichier de config:", path)
+		fmt.Println("Configuration file:", path)
 		fmt.Println("base_url:      ", cfg.BaseURL)
 		fmt.Println("token:         ", maskSecret(cfg.Token))
 		fmt.Println("username:      ", cfg.Username)
@@ -107,17 +108,19 @@ func cmdConfig(args []string) {
 		fmt.Println("chrome_path:   ", cfg.ChromePath)
 		fmt.Println("default_space: ", cfg.Space)
 		fmt.Println("default_parent:", cfg.Parent)
+		fmt.Println("user_agent:    ", cfg.UserAgent)
 
 	case "set":
 		fs := goflag.NewFlagSet("config set", goflag.ExitOnError)
-		baseURL := fs.String("base-url", "", "URL Confluence, ex: https://confluence.exemple.com")
+		baseURL := fs.String("base-url", "", "Confluence URL, e.g. https://confluence.example.com")
 		token := fs.String("token", "", "Personal Access Token")
-		username := fs.String("username", "", "utilisateur (auth basique)")
-		password := fs.String("password", "", "mot de passe (auth basique)")
-		insecure := fs.Bool("insecure", false, "ignore la vérification TLS")
-		chromePath := fs.String("chrome-path", "", "chemin vers Chrome/Chromium/Edge")
-		space := fs.String("space", "", "espace Confluence par défaut")
-		parent := fs.String("parent", "", "page parente par défaut (titre ou id)")
+		username := fs.String("username", "", "username (basic authentication)")
+		password := fs.String("password", "", "password (basic authentication)")
+		insecure := fs.Bool("insecure", false, "disable TLS verification")
+		chromePath := fs.String("chrome-path", "", "path to Chrome/Chromium/Edge")
+		space := fs.String("space", "", "default Confluence space")
+		parent := fs.String("parent", "", "default parent page (title or ID)")
+		userAgent := fs.String("user-agent", "", "custom HTTP User-Agent")
 		_ = fs.Parse(args[1:])
 
 		cfg, err := config.Load()
@@ -150,10 +153,13 @@ func cmdConfig(args []string) {
 		if set["parent"] {
 			cfg.Parent = *parent
 		}
+		if set["user-agent"] {
+			cfg.UserAgent = *userAgent
+		}
 
 		must(config.Save(cfg))
 		path, _ := config.Path()
-		fmt.Println("Configuration sauvegardée dans", path)
+		fmt.Println("Configuration saved to", path)
 
 	default:
 		fmt.Fprintln(os.Stderr, "Usage: confluence-publish config [set|show] ...")
@@ -163,7 +169,7 @@ func cmdConfig(args []string) {
 
 func maskSecret(s string) string {
 	if s == "" {
-		return "(non défini)"
+		return "(not set)"
 	}
 	if len(s) <= 4 {
 		return "****"
@@ -173,7 +179,7 @@ func maskSecret(s string) string {
 
 func must(err error) {
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Erreur:", err)
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
 }
@@ -187,12 +193,13 @@ type publishOptions struct {
 	mermaidRenderer              *mermaid.Renderer
 	theme                        string
 	dryRun                       bool
+	tree                         bool
 }
 
-// reorderArgs sépare les arguments en (flags, positionnels) pour permettre
-// d'écrire indifféremment `confluence-publish fichier.md --dry-run` ou
-// `confluence-publish --dry-run fichier.md` : le package flag standard de
-// Go arrête sinon l'analyse des flags dès le premier argument positionnel.
+// reorderArgs separates flags from positional arguments so both
+// `confluence-publish file.md --dry-run` and
+// `confluence-publish --dry-run file.md` work. Go's standard flag package
+// otherwise stops parsing at the first positional argument.
 func reorderArgs(args []string, boolFlags map[string]bool) (flagArgs, positional []string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -218,29 +225,32 @@ var publishBoolFlags = map[string]bool{
 	"insecure":   true,
 	"no-mermaid": true,
 	"dry-run":    true,
+	"tree":       true,
 }
 
 func cmdPublish(rawArgs []string) error {
 	flagArgs, positional := reorderArgs(rawArgs, publishBoolFlags)
 
 	fs := goflag.NewFlagSet("publish", goflag.ExitOnError)
-	file := fs.String("file", "", "fichier markdown")
-	dir := fs.String("dir", "", "répertoire à publier (tous les .md)")
-	recursive := fs.Bool("recursive", false, "avec --dir, inclut les sous-répertoires")
-	space := fs.String("space", "", "espace Confluence")
-	parent := fs.String("parent", "", "page parente (titre ou id)")
-	title := fs.String("title", "", "titre de la page")
-	pageID := fs.String("page-id", "", "id de page à mettre à jour")
-	labelsFlag := fs.String("labels", "", "labels séparés par des virgules")
+	file := fs.String("file", "", "Markdown file")
+	dir := fs.String("dir", "", "directory to publish (all .md files)")
+	recursive := fs.Bool("recursive", false, "with --dir, include subdirectories (ignored with --tree)")
+	tree := fs.Bool("tree", false, "with --dir, reproduce the directory tree as a Confluence page hierarchy (see README)")
+	space := fs.String("space", "", "Confluence space")
+	parent := fs.String("parent", "", "parent page (title or ID)")
+	title := fs.String("title", "", "page title")
+	pageID := fs.String("page-id", "", "ID of the page to update")
+	labelsFlag := fs.String("labels", "", "comma-separated labels")
 	baseURL := fs.String("base-url", "", "URL Confluence")
 	token := fs.String("token", "", "Personal Access Token")
-	username := fs.String("username", "", "utilisateur (auth basique)")
-	password := fs.String("password", "", "mot de passe (auth basique)")
-	insecure := fs.Bool("insecure", false, "ignore la vérification TLS")
-	chromePath := fs.String("chrome-path", "", "chemin vers Chrome/Chromium/Edge")
-	theme := fs.String("theme", "default", "thème mermaid")
-	noMermaid := fs.Bool("no-mermaid", false, "désactive le rendu image mermaid")
-	dryRun := fs.Bool("dry-run", false, "n'appelle pas l'API Confluence")
+	username := fs.String("username", "", "username (basic authentication)")
+	password := fs.String("password", "", "password (basic authentication)")
+	insecure := fs.Bool("insecure", false, "disable TLS verification")
+	chromePath := fs.String("chrome-path", "", "path to Chrome/Chromium/Edge")
+	theme := fs.String("theme", "default", "Mermaid theme")
+	noMermaid := fs.Bool("no-mermaid", false, "disable Mermaid image rendering")
+	dryRun := fs.Bool("dry-run", false, "do not call the Confluence API")
+	userAgent := fs.String("user-agent", "", "custom HTTP User-Agent")
 
 	if err := fs.Parse(flagArgs); err != nil {
 		return err
@@ -249,12 +259,12 @@ func cmdPublish(rawArgs []string) error {
 		*file = positional[0]
 	}
 	if *file == "" && *dir == "" {
-		return fmt.Errorf("indiquez un fichier markdown (ou --dir)")
+		return fmt.Errorf("specify a Markdown file (or --dir)")
 	}
 
 	cfg, err := config.Load()
 	if err != nil {
-		return fmt.Errorf("lecture config: %w", err)
+		return fmt.Errorf("read configuration: %w", err)
 	}
 
 	finalBaseURL := firstNonEmpty(*baseURL, cfg.BaseURL)
@@ -263,13 +273,14 @@ func cmdPublish(rawArgs []string) error {
 	finalPassword := firstNonEmpty(*password, cfg.Password)
 	finalInsecure := *insecure || cfg.Insecure
 	finalChromePath := firstNonEmpty(*chromePath, cfg.ChromePath)
+	finalUserAgent := firstNonEmpty(*userAgent, cfg.UserAgent)
 
 	if !*dryRun {
 		if finalBaseURL == "" {
-			return fmt.Errorf("URL Confluence manquante : utilisez --base-url ou `confluence-publish config set --base-url ...`")
+			return fmt.Errorf("missing Confluence URL: use --base-url or `confluence-publish config set --base-url ...`")
 		}
 		if finalToken == "" && finalUsername == "" {
-			return fmt.Errorf("authentification manquante : utilisez --token (ou --username/--password), ou `confluence-publish config set --token ...`")
+			return fmt.Errorf("missing authentication: use --token (or --username/--password), or `confluence-publish config set --token ...`")
 		}
 	}
 
@@ -280,6 +291,7 @@ func cmdPublish(rawArgs []string) error {
 		pageID: *pageID,
 		theme:  *theme,
 		dryRun: *dryRun,
+		tree:   *tree,
 	}
 	if *labelsFlag != "" {
 		opts.labels = splitAndTrim(*labelsFlag, ",")
@@ -287,12 +299,15 @@ func cmdPublish(rawArgs []string) error {
 
 	if !*dryRun {
 		opts.client = confluence.New(finalBaseURL, finalToken, finalUsername, finalPassword, finalInsecure)
+		if finalUserAgent != "" {
+			opts.client.UserAgent = finalUserAgent
+		}
 	}
 
 	if !*noMermaid {
 		r, err := mermaid.NewRenderer(finalChromePath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Attention: rendu Mermaid désactivé (%v). Les diagrammes seront insérés en bloc de code. Utilisez --chrome-path pour indiquer votre navigateur.\n", err)
+			fmt.Fprintf(os.Stderr, "Warning: Mermaid rendering disabled (%v). Diagrams will be inserted as code blocks. Use --chrome-path to specify your browser.\n", err)
 		} else {
 			opts.mermaidRenderer = r
 			defer r.Close()
@@ -300,9 +315,13 @@ func cmdPublish(rawArgs []string) error {
 	}
 
 	if *dir != "" {
+		if opts.tree {
+			return publishDirTree(*dir, opts)
+		}
 		return publishDir(*dir, *recursive, opts)
 	}
-	return publishFile(*file, opts)
+	_, err = publishFile(*file, opts)
+	return err
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -330,7 +349,7 @@ func publishDir(dir string, recursive bool, opts *publishOptions) error {
 	var files []string
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return fmt.Errorf("lecture répertoire %s: %w", dir, err)
+		return fmt.Errorf("read directory %s: %w", dir, err)
 	}
 	for _, e := range entries {
 		full := filepath.Join(dir, e.Name())
@@ -347,30 +366,214 @@ func publishDir(dir string, recursive bool, opts *publishOptions) error {
 		}
 	}
 	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "Aucun fichier .md trouvé dans", dir)
+		fmt.Fprintln(os.Stderr, "No .md files found in", dir)
 	}
 	for _, f := range files {
-		// En mode répertoire, le titre ne peut pas être forcé globalement :
-		// on repart du frontmatter / nom de fichier pour chaque page.
+		// Directory mode cannot force one global title. Use each file's
+		// frontmatter or filename instead.
 		perFile := *opts
 		perFile.title = ""
 		perFile.pageID = ""
-		if err := publishFile(f, &perFile); err != nil {
-			fmt.Fprintf(os.Stderr, "Échec pour %s: %v\n", f, err)
+		if _, err := publishFile(f, &perFile); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to publish %s: %v\n", f, err)
 		}
 	}
 	return nil
 }
 
-func publishFile(path string, opts *publishOptions) error {
+// findIndexFile returns a directory's explicit index file (_index.md or
+// index.md), or an empty string when neither exists.
+func findIndexFile(dir string) string {
+	for _, name := range []string{"_index.md", "index.md"} {
+		p := filepath.Join(dir, name)
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p
+		}
+	}
+	return ""
+}
+
+// mdFilesIn lists .md files directly inside dir, excluding subdirectories.
+// It returns nil when dir cannot be read.
+func mdFilesIn(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if strings.EqualFold(filepath.Ext(e.Name()), ".md") {
+			out = append(out, e.Name())
+		}
+	}
+	return out
+}
+
+// publishDirTree publishes dir as a tree. The contents of dir become children
+// of opts.parent; dir itself does not create a page. Subdirectories are
+// represented by an explicit index page or an automatically created container.
+func publishDirTree(dir string, opts *publishOptions) error {
+	spaceKey := opts.space
+	if !opts.dryRun && spaceKey == "" {
+		return fmt.Errorf("missing Confluence space (--space or default_space configuration)")
+	}
+
+	parentID := opts.parent
+	if !opts.dryRun && parentID != "" {
+		var err error
+		parentID, err = opts.client.ResolveParentID(spaceKey, opts.parent)
+		if err != nil {
+			return err
+		}
+	}
+
+	if idx := findIndexFile(dir); idx != "" {
+		fmt.Fprintf(os.Stderr, "Note: %s is ignored (the directory passed to --dir does not create its own page; only its contents are published under --parent).\n", idx)
+	}
+
+	return publishTree(dir, parentID, opts)
+}
+
+func publishTree(dir string, parentID string, opts *publishOptions) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read directory %s: %w", dir, err)
+	}
+	ownIndex := findIndexFile(dir)
+
+	for _, e := range entries {
+		full := filepath.Join(dir, e.Name())
+
+		if e.IsDir() {
+			subIndex := findIndexFile(full)
+			mdInSub := mdFilesIn(full)
+
+			if subIndex == "" && len(mdInSub) == 0 {
+				// A directory without an index or direct .md file remains transparent;
+				// deeper content is attached to the current parent.
+				if err := publishTree(full, parentID, opts); err != nil {
+					return err
+				}
+				continue
+			}
+
+			var page *confluence.Page
+			var err error
+
+			if subIndex != "" {
+				// An explicit _index.md/index.md supplies the directory page content.
+				perFile := *opts
+				perFile.parent = parentID
+				perFile.title = ""
+				perFile.pageID = ""
+				page, err = publishFile(subIndex, &perFile)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Failed to publish %s: %v\n", subIndex, err)
+					continue
+				}
+			} else {
+				// Direct Markdown without an explicit index creates a container page
+				// whose title is derived from the directory name.
+				page, err = publishFolderPage(full, parentID, opts)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Failed to publish directory %s: %v\n", full, err)
+					continue
+				}
+			}
+
+			childParentID := parentID
+			if opts.dryRun {
+				// Use a readable placeholder because dry-run does not create a page.
+				childParentID = "<page to create: " + filepath.Base(full) + ">"
+			}
+			if page != nil {
+				childParentID = page.ID
+			}
+			if err := publishTree(full, childParentID, opts); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if !strings.EqualFold(filepath.Ext(e.Name()), ".md") {
+			continue
+		}
+		if ownIndex != "" && full == ownIndex {
+			continue // already published by the caller as this directory's page
+		}
+
+		perFile := *opts
+		perFile.parent = parentID
+		perFile.title = ""
+		perFile.pageID = ""
+		if _, err := publishFile(full, &perFile); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to publish %s: %v\n", full, err)
+		}
+	}
+	return nil
+}
+
+// publishFolderPage creates or updates the container page for a directory
+// without an explicit index but with direct Markdown content. Its title is
+// derived from the directory name, and the Confluence children macro supplies
+// its body automatically.
+func publishFolderPage(dir string, parentID string, opts *publishOptions) (*confluence.Page, error) {
+	title := titleFromFilename(dir)
+	storage := `<p><ac:structured-macro ac:name="children" ac:schema-version="2" /></p>`
+
+	if opts.dryRun {
+		parentInfo := parentID
+		if parentInfo == "" {
+			parentInfo = "(space root)"
+		}
+		fmt.Printf("=== [directory] %s (%s) [parent: %s] ===\n", dir, title, parentInfo)
+		fmt.Println(storage)
+		return nil, nil
+	}
+
+	spaceKey := opts.space
+	if spaceKey == "" {
+		return nil, fmt.Errorf("missing Confluence space (--space or default_space configuration)")
+	}
+	client := opts.client
+
+	page, err := client.FindPageByTitle(spaceKey, title)
+	if err != nil {
+		return nil, fmt.Errorf("find page %q in %s: %w", title, spaceKey, err)
+	}
+
+	if page == nil {
+		fmt.Printf("Creating container page %q in space %s...\n", title, spaceKey)
+		page, err = client.CreatePage(spaceKey, title, parentID, storage)
+		if err != nil {
+			return nil, fmt.Errorf("create container page: %w", err)
+		}
+	} else if page.Title == title && normalizeStorage(page.StorageValue()) == normalizeStorage(storage) {
+		fmt.Printf("Container page %q (ID %s) is already up to date; no changes.\n", page.Title, page.ID)
+	} else {
+		fmt.Printf("Updating container page %q (ID %s, version %d)...\n", page.Title, page.ID, page.Version.Number)
+		page, err = client.UpdatePage(page.ID, title, storage, page.Version.Number)
+		if err != nil {
+			return nil, fmt.Errorf("update container page: %w", err)
+		}
+	}
+
+	fmt.Println("OK ->", client.URL(page))
+	return page, nil
+}
+
+func publishFile(path string, opts *publishOptions) (*confluence.Page, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("lecture %s: %w", path, err)
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
 	meta, body, err := frontmatter.Split(data)
 	if err != nil {
-		return fmt.Errorf("frontmatter invalide dans %s: %w", path, err)
+		return nil, fmt.Errorf("invalid frontmatter in %s: %w", path, err)
 	}
 
 	title := firstNonEmpty(opts.title, meta.Title, titleFromFilename(path))
@@ -380,12 +583,12 @@ func publishFile(path string, opts *publishOptions) error {
 	labels := append(append([]string{}, meta.Labels...), opts.labels...)
 
 	if !opts.dryRun && spaceKey == "" && pageID == "" {
-		return fmt.Errorf("espace Confluence manquant pour %s (--space, frontmatter 'space:', ou config default_space)", path)
+		return nil, fmt.Errorf("missing Confluence space for %s (--space, 'space:' frontmatter, or default_space configuration)", path)
 	}
 
 	mermaidOutDir, err := os.MkdirTemp("", "confluence-publish-out-*")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer os.RemoveAll(mermaidOutDir)
 
@@ -403,22 +606,26 @@ func publishFile(path string, opts *publishOptions) error {
 
 	result, err := converter.Convert(body)
 	if err != nil {
-		return fmt.Errorf("conversion markdown %s: %w", path, err)
+		return nil, fmt.Errorf("convert Markdown %s: %w", path, err)
 	}
 	for _, w := range result.Warnings {
-		fmt.Fprintf(os.Stderr, "[%s] Attention: %s\n", filepath.Base(path), w)
+		fmt.Fprintf(os.Stderr, "[%s] Warning: %s\n", filepath.Base(path), w)
 	}
 
 	if opts.dryRun {
-		fmt.Println("=== " + path + " (" + title + ") ===")
+		parentInfo := parentRef
+		if parentInfo == "" {
+			parentInfo = "(space root)"
+		}
+		fmt.Printf("=== %s (%s) [parent: %s] ===\n", path, title, parentInfo)
 		fmt.Println(result.Storage)
 		if len(result.Attachments) > 0 {
-			fmt.Println("--- Pièces jointes ---")
+			fmt.Println("--- Attachments ---")
 			for _, a := range result.Attachments {
 				fmt.Println(" -", a.Filename, "<-", a.LocalPath)
 			}
 		}
-		return nil
+		return nil, nil
 	}
 
 	client := opts.client
@@ -427,7 +634,7 @@ func publishFile(path string, opts *publishOptions) error {
 	if parentRef != "" {
 		parentID, err = client.ResolveParentID(spaceKey, parentRef)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -435,44 +642,59 @@ func publishFile(path string, opts *publishOptions) error {
 	if pageID != "" {
 		page, err = client.GetPage(pageID)
 		if err != nil {
-			return fmt.Errorf("récupération page id %s: %w", pageID, err)
+			return nil, fmt.Errorf("get page ID %s: %w", pageID, err)
 		}
 	} else {
 		page, err = client.FindPageByTitle(spaceKey, title)
 		if err != nil {
-			return fmt.Errorf("recherche page %q dans %s: %w", title, spaceKey, err)
+			return nil, fmt.Errorf("find page %q in %s: %w", title, spaceKey, err)
 		}
 	}
 
 	if page == nil {
-		fmt.Printf("Création de la page %q dans l'espace %s...\n", title, spaceKey)
+		fmt.Printf("Creating page %q in space %s...\n", title, spaceKey)
 		page, err = client.CreatePage(spaceKey, title, parentID, result.Storage)
 		if err != nil {
-			return fmt.Errorf("création page: %w", err)
+			return nil, fmt.Errorf("create page: %w", err)
 		}
+	} else if page.Title == title && normalizeStorage(page.StorageValue()) == normalizeStorage(result.Storage) {
+		fmt.Printf("Page %q (ID %s) is already up to date; no changes.\n", page.Title, page.ID)
 	} else {
-		fmt.Printf("Mise à jour de la page %q (id %s, version %d)...\n", page.Title, page.ID, page.Version.Number)
+		fmt.Printf("Updating page %q (ID %s, version %d)...\n", page.Title, page.ID, page.Version.Number)
 		page, err = client.UpdatePage(page.ID, title, result.Storage, page.Version.Number)
 		if err != nil {
-			return fmt.Errorf("mise à jour page: %w", err)
+			return nil, fmt.Errorf("update page: %w", err)
 		}
 	}
 
 	for _, a := range result.Attachments {
-		fmt.Printf("  pièce jointe: %s\n", a.Filename)
-		if err := client.UploadAttachment(page.ID, a.Filename, a.LocalPath); err != nil {
-			fmt.Fprintf(os.Stderr, "  Attention: échec upload %s: %v\n", a.Filename, err)
+		skipped, err := client.UploadAttachment(page.ID, a.Filename, a.LocalPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: failed to upload %s: %v\n", a.Filename, err)
+			continue
+		}
+		if skipped {
+			fmt.Printf("  attachment: %s (already up to date, skipped)\n", a.Filename)
+		} else {
+			fmt.Printf("  attachment: %s\n", a.Filename)
 		}
 	}
 
 	if len(labels) > 0 {
 		if err := client.AddLabels(page.ID, labels); err != nil {
-			fmt.Fprintf(os.Stderr, "  Attention: échec ajout labels: %v\n", err)
+			fmt.Fprintf(os.Stderr, "  Warning: failed to add labels: %v\n", err)
 		}
 	}
 
 	fmt.Println("OK ->", client.URL(page))
-	return nil
+	return page, nil
+}
+
+// normalizeStorage flattens whitespace differences between two XHTML storage
+// values. It is not a semantic comparison, but reliably detects common
+// no-change cases despite cosmetic reformatting by Confluence.
+func normalizeStorage(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func titleFromFilename(path string) string {
@@ -483,7 +705,7 @@ func titleFromFilename(path string) string {
 	words := strings.Fields(base)
 	for i, w := range words {
 		if w == strings.ToUpper(w) {
-			continue // sigles : on laisse tel quel (API, README, ...)
+			continue // Preserve all-uppercase abbreviations such as API and README.
 		}
 		r := []rune(w)
 		if len(r) > 0 {

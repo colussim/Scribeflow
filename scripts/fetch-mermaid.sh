@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Télécharge mermaid.min.js (via npm) et le place dans
-# internal/mermaid/assets/mermaid.min.js pour qu'il soit embarqué dans le
-# binaire via go:embed. À relancer si vous voulez changer de version de
-# mermaid (variable MERMAID_VERSION ci-dessous).
+# Author: Emmanuel COLUSSI
+# Download mermaid.min.js through npm and place it in
+# internal/mermaid/assets/mermaid.min.js so go:embed can include it in the
+# binary. Run this script again to change the Mermaid version configured below.
 set -euo pipefail
 
 MERMAID_VERSION="${MERMAID_VERSION:-10}"
@@ -11,7 +11,7 @@ ASSETS_DIR="$ROOT_DIR/internal/mermaid/assets"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-echo "Téléchargement de mermaid@${MERMAID_VERSION}..."
+echo "Downloading mermaid@${MERMAID_VERSION}..."
 ( cd "$TMP_DIR" && npm pack "mermaid@${MERMAID_VERSION}" --silent )
 
 TARBALL="$(ls "$TMP_DIR"/mermaid-*.tgz | head -1)"

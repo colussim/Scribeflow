@@ -1,10 +1,13 @@
-// Package mermaid rend des diagrammes Mermaid en image PNG en pilotant un
-// Chrome/Chromium local en mode headless (screenshot en ligne de commande).
+// Author: Emmanuel COLUSSI
+// Copyright (c) 2026 Emmanuel COLUSSI
+// SPDX-License-Identifier: MIT
 //
-// Aucune dépendance externe n'est requise à l'exécution à part un
-// navigateur Chromium-based déjà installé sur la machine (Chrome, Edge ou
-// Chromium). Le rendu est 100% local/offline : mermaid.js est embarqué
-// dans le binaire.
+// Package mermaid renders Mermaid diagrams as vector SVG by driving a local
+// headless Chrome or Chromium process and reading its rendered DOM.
+//
+// Mermaid.js produces a content-fitted SVG directly, so rasterization and
+// cropping are unnecessary. The embedded Mermaid.js asset keeps rendering
+// local and offline; only an installed Chromium-based browser is required.
 package mermaid
 
 import (
@@ -12,12 +15,10 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"image"
-	"image/color"
-	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -26,17 +27,16 @@ import (
 //go:embed assets/mermaid.min.js
 var mermaidJS []byte
 
-// Renderer rend des sources Mermaid en fichiers PNG.
+// Renderer converts Mermaid source into SVG files.
 type Renderer struct {
 	chromePath string
 	workDir    string
 	jsPath     string
 	Theme      string        // "default", "dark", "neutral", "forest"...
-	Timeout    time.Duration // timeout par diagramme
+	Timeout    time.Duration // timeout per diagram
 }
 
-// NewRenderer prépare un Renderer. chromePath peut être vide pour une
-// détection automatique du navigateur installé.
+// NewRenderer prepares a Renderer. An empty chromePath enables browser detection.
 func NewRenderer(chromePath string) (*Renderer, error) {
 	if chromePath == "" {
 		var err error
@@ -45,17 +45,17 @@ func NewRenderer(chromePath string) (*Renderer, error) {
 			return nil, err
 		}
 	} else if _, err := os.Stat(chromePath); err != nil {
-		return nil, fmt.Errorf("chemin Chrome invalide %q: %w", chromePath, err)
+		return nil, fmt.Errorf("invalid Chrome path %q: %w", chromePath, err)
 	}
 
 	dir, err := os.MkdirTemp("", "confluence-publish-mermaid-*")
 	if err != nil {
-		return nil, fmt.Errorf("création répertoire temporaire: %w", err)
+		return nil, fmt.Errorf("create temporary directory: %w", err)
 	}
 
 	jsPath := filepath.Join(dir, "mermaid.min.js")
 	if err := os.WriteFile(jsPath, mermaidJS, 0o644); err != nil {
-		return nil, fmt.Errorf("écriture mermaid.min.js: %w", err)
+		return nil, fmt.Errorf("write mermaid.min.js: %w", err)
 	}
 
 	return &Renderer{
@@ -67,63 +67,78 @@ func NewRenderer(chromePath string) (*Renderer, error) {
 	}, nil
 }
 
-// Close nettoie les fichiers temporaires du renderer.
+// Close removes the renderer's temporary files.
 func (r *Renderer) Close() error {
 	return os.RemoveAll(r.workDir)
 }
 
-// ChromePath retourne le chemin du binaire Chrome/Chromium détecté ou fourni.
+// ChromePath returns the detected or configured Chrome/Chromium path.
 func (r *Renderer) ChromePath() string { return r.chromePath }
 
+// pageTemplate renders a diagram through Mermaid.js and serializes the SVG in
+// a plain-text script element so Chrome's DOM dump preserves its outerHTML.
 const pageTemplate = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <style>
   html, body { margin:0; padding:0; background:#ffffff; }
-  #stage { display:inline-block; padding:24px; background:#ffffff; }
-  #err { color:#c0392b; font:14px monospace; white-space:pre-wrap; padding:16px; border:2px solid #c0392b; display:none; max-width:1800px; }
+  #stage { display:inline-block; padding:8px; background:#ffffff; }
 </style>
 </head>
 <body>
 <div id="stage"><pre class="mermaid" id="dgm">%s</pre></div>
-<div id="err"></div>
 <script src="mermaid.min.js"></script>
 <script>
-  window.__renderDone = false;
+  function finish(errText) {
+    var out = document.createElement("script");
+    out.type = "text/plain";
+    out.id = "svg-out";
+    if (errText) {
+      out.setAttribute("data-error", "1");
+      out.textContent = errText;
+    } else {
+      var svgEl = document.querySelector("#dgm svg") || document.querySelector("svg");
+      out.textContent = svgEl ? svgEl.outerHTML : "";
+    }
+    document.body.appendChild(out);
+  }
   try {
-    mermaid.initialize({ startOnLoad: false, theme: %q, securityLevel: "loose" });
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: %q,
+      securityLevel: "loose",
+      // Disable HTML labels because many Confluence instances sanitize SVG
+      // attachments and remove <foreignObject>. Native SVG text keeps labels
+      // visible without the associated HTML injection risk.
+      flowchart: { htmlLabels: false },
+      class: { htmlLabels: false },
+      state: { htmlLabels: false },
+      er: { htmlLabels: false }
+    });
     mermaid.run({ querySelector: "#dgm" }).then(function () {
-      window.__renderDone = true;
+      finish(null);
     }).catch(function (e) {
-      document.getElementById("stage").style.display = "none";
-      var el = document.getElementById("err");
-      el.style.display = "block";
-      el.textContent = "Erreur de rendu Mermaid:\n" + (e && e.message ? e.message : String(e));
-      window.__renderDone = true;
+      finish(e && e.message ? e.message : String(e));
     });
   } catch (e) {
-    document.getElementById("stage").style.display = "none";
-    var el = document.getElementById("err");
-    el.style.display = "block";
-    el.textContent = "Erreur de rendu Mermaid:\n" + (e && e.message ? e.message : String(e));
-    window.__renderDone = true;
+    finish(e && e.message ? e.message : String(e));
   }
 </script>
 </body>
 </html>`
 
-// Render rend le code source mermaid `source` et retourne le chemin d'un
-// fichier PNG recadré (fond blanc retiré, marge de sécurité conservée).
-// destPNG est le chemin de sortie souhaité.
-func (r *Renderer) Render(source string, destPNG string) error {
-	id := filepath.Base(destPNG)
+var svgOutRE = regexp.MustCompile(`(?s)<script[^>]*\bid="svg-out"[^>]*>(.*?)</script>`)
+var svgOutErrRE = regexp.MustCompile(`(?s)<script[^>]*\bid="svg-out"[^>]*\bdata-error="1"[^>]*>`)
+
+// Render converts Mermaid source to SVG and writes it to destSVG.
+func (r *Renderer) Render(source string, destSVG string) error {
+	id := filepath.Base(destSVG)
 	htmlPath := filepath.Join(r.workDir, id+".html")
-	rawPNG := filepath.Join(r.workDir, id+".raw.png")
 
 	html := fmt.Sprintf(pageTemplate, escapeHTML(source), r.Theme)
 	if err := os.WriteFile(htmlPath, []byte(html), 0o644); err != nil {
-		return fmt.Errorf("écriture page de rendu: %w", err)
+		return fmt.Errorf("write rendering page: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), r.Timeout)
@@ -134,126 +149,103 @@ func (r *Renderer) Render(source string, destPNG string) error {
 		"--disable-gpu",
 		"--no-sandbox",
 		"--hide-scrollbars",
-		"--force-color-profile=srgb",
 		"--disable-extensions",
-		"--default-background-color=FFFFFFFF",
 		"--virtual-time-budget=4000",
 		"--window-size=2400,1800",
-		"--screenshot=" + rawPNG,
+		"--dump-dom",
 		"file://" + filepath.ToSlash(htmlPath),
 	}
 
 	cmd := exec.CommandContext(ctx, r.chromePath, args...)
-	var stderr bytes.Buffer
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("échec exécution Chrome headless (%s): %w\n%s", r.chromePath, err, stderr.String())
+		return fmt.Errorf("run headless Chrome (%s): %w\n%s", r.chromePath, err, stderr.String())
 	}
 
-	f, err := os.Open(rawPNG)
-	if err != nil {
-		return fmt.Errorf("capture d'écran introuvable, le rendu a probablement échoué: %w", err)
+	dom := stdout.String()
+	m := svgOutRE.FindStringSubmatch(dom)
+	if m == nil {
+		return fmt.Errorf("Mermaid rendering did not produce an SVG before the browser stopped")
 	}
-	defer f.Close()
-
-	img, err := png.Decode(f)
-	if err != nil {
-		return fmt.Errorf("décodage PNG: %w", err)
+	if svgOutErrRE.MatchString(dom) {
+		return fmt.Errorf("invalid Mermaid diagram (check its syntax): %s", strings.TrimSpace(unescapeScriptText(m[1])))
 	}
 
-	cropped, err := autocrop(img, color.White, 8, 16)
-	if err != nil {
-		return fmt.Errorf("diagramme mermaid vide ou invalide (vérifiez la syntaxe): %w", err)
+	svg := strings.TrimSpace(unescapeScriptText(m[1]))
+	if svg == "" {
+		return fmt.Errorf("empty or invalid Mermaid diagram (check its syntax)")
+	}
+	svg = fixSVGDimensions(svg)
+	svg = addOpaqueBackground(svg, backgroundColorForTheme(r.Theme))
+	if !strings.HasPrefix(svg, "<?xml") {
+		svg = `<?xml version="1.0" encoding="UTF-8"?>` + "\n" + svg
 	}
 
-	out, err := os.Create(destPNG)
-	if err != nil {
-		return fmt.Errorf("création fichier de sortie: %w", err)
-	}
-	defer out.Close()
-
-	if err := png.Encode(out, cropped); err != nil {
-		return fmt.Errorf("encodage PNG final: %w", err)
+	if err := os.WriteFile(destSVG, []byte(svg), 0o644); err != nil {
+		return fmt.Errorf("write SVG file: %w", err)
 	}
 
 	return nil
 }
 
-// autocrop recadre img à la zone contenant des pixels différents de bg
-// (au-delà de tolerance par canal), avec padding pixels de marge conservée.
-func autocrop(img image.Image, bg color.Color, tolerance int, padding int) (image.Image, error) {
-	bounds := img.Bounds()
-	br, bgc, bb, _ := bg.RGBA()
+var svgOpenTagRE = regexp.MustCompile(`(?s)^<svg\b[^>]*>`)
+var svgViewBoxRE = regexp.MustCompile(`viewBox="([-\d.eE]+)\s+([-\d.eE]+)\s+([\d.eE]+)\s+([\d.eE]+)"`)
+var svgWidthAttrRE = regexp.MustCompile(`\s(width|height)="[^"]*"`)
 
-	differs := func(x, y int) bool {
-		r, g, b, _ := img.At(x, y).RGBA()
-		return absInt(int(r>>8)-int(br>>8)) > tolerance ||
-			absInt(int(g>>8)-int(bgc>>8)) > tolerance ||
-			absInt(int(b>>8)-int(bb>>8)) > tolerance
+// fixSVGDimensions replaces Mermaid's width="100%" root attribute with fixed
+// pixel dimensions derived from the viewBox. Some consumers cannot otherwise
+// infer an intrinsic image size.
+func fixSVGDimensions(svg string) string {
+	openTag := svgOpenTagRE.FindString(svg)
+	if openTag == "" {
+		return svg
 	}
-
-	minX, minY := bounds.Max.X, bounds.Max.Y
-	maxX, maxY := bounds.Min.X, bounds.Min.Y
-	found := false
-
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			if differs(x, y) {
-				found = true
-				if x < minX {
-					minX = x
-				}
-				if x > maxX {
-					maxX = x
-				}
-				if y < minY {
-					minY = y
-				}
-				if y > maxY {
-					maxY = y
-				}
-			}
-		}
+	vb := svgViewBoxRE.FindStringSubmatch(openTag)
+	if vb == nil {
+		return svg
 	}
-
-	if !found {
-		return nil, fmt.Errorf("aucun contenu détecté dans la capture")
-	}
-
-	minX = maxInt(bounds.Min.X, minX-padding)
-	minY = maxInt(bounds.Min.Y, minY-padding)
-	maxX = minInt(bounds.Max.X-1, maxX+padding)
-	maxY = minInt(bounds.Max.Y-1, maxY+padding)
-
-	rect := image.Rect(0, 0, maxX-minX+1, maxY-minY+1)
-	dst := image.NewRGBA(rect)
-	for y := minY; y <= maxY; y++ {
-		for x := minX; x <= maxX; x++ {
-			dst.Set(x-minX, y-minY, img.At(x, y))
-		}
-	}
-	return dst, nil
+	// Remove existing dimensions before inserting fixed pixel values.
+	withoutSize := svgWidthAttrRE.ReplaceAllString(openTag, "")
+	newTag := "<svg width=\"" + vb[3] + "\" height=\"" + vb[4] + "\"" + strings.TrimPrefix(withoutSize, "<svg")
+	return newTag + svg[len(openTag):]
 }
 
-func absInt(v int) int {
-	if v < 0 {
-		return -v
+// backgroundColorForTheme returns a background that keeps the diagram
+// readable independently of the surrounding Confluence theme.
+func backgroundColorForTheme(theme string) string {
+	if theme == "dark" {
+		return "#1e1e1e"
 	}
-	return v
+	return "#ffffff"
 }
 
-func maxInt(a, b int) int {
-	if a > b {
-		return a
+// addOpaqueBackground inserts a viewBox-sized rectangle behind the diagram.
+// Mermaid SVGs are transparent, so an explicit background prevents text and
+// lines from becoming unreadable against the opposite Confluence theme.
+func addOpaqueBackground(svg string, bg string) string {
+	openTag := svgOpenTagRE.FindString(svg)
+	if openTag == "" {
+		return svg
 	}
-	return b
+	vb := svgViewBoxRE.FindStringSubmatch(openTag)
+	if vb == nil {
+		return svg
+	}
+	rect := `<rect x="` + vb[1] + `" y="` + vb[2] + `" width="` + vb[3] + `" height="` + vb[4] + `" fill="` + bg + `"/>`
+	return openTag + rect + svg[len(openTag):]
 }
 
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+// unescapeScriptText reverses minimal escaping that some Chrome versions may
+// apply while dumping the DOM.
+func unescapeScriptText(s string) string {
+	r := strings.NewReplacer(
+		"&amp;", "&",
+		"&lt;", "<",
+		"&gt;", ">",
+	)
+	return r.Replace(s)
 }
 
 func escapeHTML(s string) string {
@@ -265,7 +257,7 @@ func escapeHTML(s string) string {
 	return r.Replace(s)
 }
 
-// findChrome cherche un navigateur Chromium-based installé sur la machine.
+// findChrome locates an installed Chromium-based browser.
 func findChrome() (string, error) {
 	if p := os.Getenv("CONFLUENCE_PUBLISH_CHROME"); p != "" {
 		if _, err := os.Stat(p); err == nil {
@@ -318,5 +310,5 @@ func findChrome() (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("aucun navigateur Chrome/Chromium/Edge détecté ; installez Chrome ou passez --chrome-path")
+	return "", fmt.Errorf("no Chrome/Chromium/Edge browser detected; install one or use --chrome-path")
 }

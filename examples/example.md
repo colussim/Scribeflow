@@ -1,43 +1,42 @@
 ---
-title: Exemple de page
+title: Example page
 space: DEV
-parent: Documentation technique
+parent: Technical documentation
 labels: [demo, architecture]
 ---
 
-# Exemple de page
+# Example page
 
-Ceci est un paragraphe avec du **gras**, de l'*italique*, du texte ~~barré~~
-et du `code inline`. Voici un [lien](https://example.com).
+This paragraph contains **bold**, *italic*, ~~strikethrough~~, and `inline code` text. Here is a [link](https://example.com).
 
-## Diagramme
+## Diagram
 
 ```mermaid
 flowchart TD
-    A[Client] -->|requête| B(API Gateway)
+    A[Client] -->|request| B(API Gateway)
     B --> C{Cache?}
-    C -->|hit| D[Retour immédiat]
-    C -->|miss| E[Service backend]
-    E --> F[(Base de données)]
+    C -->|hit| D[Immediate response]
+    C -->|miss| E[Backend service]
+    E --> F[(Database)]
     E --> D
 ```
 
-## Liste de tâches
+## Task list
 
-- [x] Écrire le convertisseur markdown
-- [x] Gérer les diagrammes mermaid
-- [ ] Tester sur Windows
-- [ ] Tester sur macOS
+- [x] Write the Markdown converter
+- [x] Support Mermaid diagrams
+- [x] Test on Windows
+- [x] Test on macOS
 
-## Tableau
+## Table
 
-| Composant | Langage | Statut |
+| Component | Language | Status |
 |---|:-:|--:|
-| Convertisseur | Go | OK |
-| Rendu Mermaid | Go + Chrome | OK |
-| Client API | Go | OK |
+| Converter | Go | OK |
+| Mermaid renderer | Go + Chrome | OK |
+| API client | Go | OK |
 
-## Image locale
+## Local image
 
 ![Logo](./logo.png)
 
@@ -49,8 +48,8 @@ func main() {
 }
 ```
 
-> Une citation pour vérifier le rendu blockquote.
+> A quotation used to verify blockquote rendering.
 
 ---
 
-Fin de l'exemple.
+End of the example.

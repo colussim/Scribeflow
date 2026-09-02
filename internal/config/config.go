@@ -1,6 +1,9 @@
-// Package config gère la configuration persistée (URL Confluence,
-// identifiants, chemin Chrome) dans un fichier JSON du profil utilisateur,
-// commun à Windows et macOS.
+// Author: Emmanuel COLUSSI
+// Copyright (c) 2026 Emmanuel COLUSSI
+// SPDX-License-Identifier: MIT
+
+// Package config manages persistent settings (Confluence URL, credentials,
+// and Chrome path) in a user-profile JSON file on Windows and macOS.
 package config
 
 import (
@@ -9,7 +12,7 @@ import (
 	"path/filepath"
 )
 
-// Config est l'ensemble des paramètres réutilisables entre invocations.
+// Config contains settings reused across invocations.
 type Config struct {
 	BaseURL    string `json:"base_url"`
 	Token      string `json:"token,omitempty"`
@@ -19,9 +22,10 @@ type Config struct {
 	ChromePath string `json:"chrome_path,omitempty"`
 	Space      string `json:"default_space,omitempty"`
 	Parent     string `json:"default_parent,omitempty"`
+	UserAgent  string `json:"user_agent,omitempty"`
 }
 
-// Path retourne l'emplacement standard du fichier de config:
+// Path returns the standard configuration file location:
 //   - Windows: %APPDATA%\confluence-publish\config.json
 //   - macOS:   ~/Library/Application Support/confluence-publish/config.json
 //   - Linux:   ~/.config/confluence-publish/config.json
@@ -33,8 +37,8 @@ func Path() (string, error) {
 	return filepath.Join(dir, "confluence-publish", "config.json"), nil
 }
 
-// Load lit la config depuis disque. Si le fichier n'existe pas, retourne
-// une Config vide sans erreur.
+// Load reads the configuration from disk. A missing file returns an empty
+// Config without an error.
 func Load() (Config, error) {
 	var c Config
 	path, err := Path()
@@ -54,8 +58,8 @@ func Load() (Config, error) {
 	return c, nil
 }
 
-// Save écrit la config sur disque (permissions restreintes, 0600) en
-// créant le répertoire parent si besoin.
+// Save writes the configuration with restricted permissions (0600), creating
+// its parent directory when necessary.
 func Save(c Config) error {
 	path, err := Path()
 	if err != nil {

@@ -1,11 +1,13 @@
-// Package mdconvert convertit du Markdown (avec extensions GFM: tables,
-// listes de tâches, barré) vers le format "storage" (XHTML) utilisé par
-// l'API Confluence pour représenter le contenu d'une page.
+// Author: Emmanuel COLUSSI
+// Copyright (c) 2026 Emmanuel COLUSSI
+// SPDX-License-Identifier: MIT
 //
-// Les blocs de code ```mermaid sont interceptés et rendus en image PNG via
-// un MermaidRenderer, puis référencés comme pièce jointe. Les images
-// locales référencées dans le markdown sont elles aussi collectées comme
-// pièces jointes à uploader.
+// Package mdconvert converts Markdown with GFM extensions (tables, task lists,
+// and strikethrough) to the XHTML storage format used by Confluence.
+//
+// Mermaid code blocks are rendered as vector SVG files through a
+// MermaidRenderer and referenced as attachments. Local Markdown images are
+// also collected for upload.
 package mdconvert
 
 import (
@@ -24,35 +26,32 @@ import (
 	"github.com/yuin/goldmark/text"
 )
 
-// MermaidRenderer rend un diagramme mermaid vers un fichier PNG à
-// destPath. Voir le package internal/mermaid pour l'implémentation basée
-// sur Chrome headless.
+// MermaidRenderer renders a Mermaid diagram to an SVG file at destPath.
 type MermaidRenderer interface {
-	Render(source string, destPNG string) error
+	Render(source string, destSVG string) error
 }
 
-// Attachment décrit un fichier local à uploader comme pièce jointe de la
-// page Confluence, référencé depuis le storage format par son nom.
+// Attachment describes a local file to upload and reference by filename.
 type Attachment struct {
-	Filename  string // nom tel que référencé dans la page et attaché à Confluence
-	LocalPath string // chemin du fichier source sur disque
+	Filename  string // name referenced by the page and attached to Confluence
+	LocalPath string // source file path on disk
 }
 
-// Result est le résultat d'une conversion.
+// Result contains the output of a conversion.
 type Result struct {
 	Storage     string
 	Attachments []Attachment
 	Warnings    []string
 }
 
-// Converter convertit un document markdown en storage format Confluence.
+// Converter converts a Markdown document to Confluence storage format.
 type Converter struct {
-	// BaseDir sert à résoudre les chemins d'images relatifs du markdown.
+	// BaseDir resolves relative image paths from Markdown.
 	BaseDir string
-	// Mermaid, si non-nil, active le rendu des blocs ```mermaid en image.
-	// Si nil, les blocs mermaid sont rendus comme un bloc de code brut.
+	// Mermaid enables image rendering for Mermaid blocks when non-nil.
+	// A nil value renders Mermaid blocks as plain code.
 	Mermaid MermaidRenderer
-	// MermaidOutDir est le répertoire où écrire les PNG générés.
+	// MermaidOutDir is the directory where generated SVG files are written.
 	MermaidOutDir string
 }
 
@@ -61,13 +60,13 @@ type renderState struct {
 	source        []byte
 	buf           bytes.Buffer
 	attachments   []Attachment
-	seenByPath    map[string]string // abs path -> filename déjà enregistré
+	seenByPath    map[string]string // absolute path -> previously registered filename
 	seenNames     map[string]bool
 	warnings      []string
 	taskIDCounter int
 }
 
-// Convert transforme le markdown `md` en storage format Confluence.
+// Convert transforms Markdown into Confluence storage format.
 func (c *Converter) Convert(md []byte) (*Result, error) {
 	gm := goldmark.New(goldmark.WithExtensions(east.GFM))
 	reader := text.NewReader(md)
@@ -95,8 +94,8 @@ func (st *renderState) warn(format string, args ...any) {
 	st.warnings = append(st.warnings, fmt.Sprintf(format, args...))
 }
 
-// registerAttachment enregistre un fichier local et retourne le nom de
-// fichier (dédupliqué) à utiliser dans le storage format.
+// registerAttachment registers a local file and returns a deduplicated
+// filename for storage format.
 func (st *renderState) registerAttachment(localPath, preferredName string) string {
 	abs, err := filepath.Abs(localPath)
 	if err != nil {
@@ -188,11 +187,10 @@ func (st *renderState) renderBlock(n gast.Node) {
 		st.renderTable(v)
 
 	case *gast.HTMLBlock:
-		st.warn("bloc HTML brut ignoré (non supporté dans cette version)")
+		st.warn("raw HTML block ignored (not supported in this version)")
 
 	default:
-		// Type de bloc inconnu : on essaie de descendre dans les enfants
-		// pour ne rien perdre de silencieusement.
+		// Walk children of unknown block types to avoid silently losing content.
 		for c := n.FirstChild(); c != nil; c = c.NextSibling() {
 			st.renderBlock(c)
 		}
@@ -217,10 +215,8 @@ func (st *renderState) renderListItem(li *gast.ListItem) {
 	st.buf.WriteString("</li>\n")
 }
 
-// firstIsCheckbox regarde si le premier enfant de container (un
-// *ast.Paragraph pour une liste "loose", un *ast.TextBlock pour une liste
-// "tight" — goldmark utilise l'un ou l'autre selon le cas) est une case à
-// cocher GFM.
+// firstIsCheckbox reports whether the first child of container (a Paragraph
+// for a loose list or a TextBlock for a tight list) is a GFM task checkbox.
 func firstIsCheckbox(container gast.Node) (*eastast.TaskCheckBox, bool) {
 	if container == nil {
 		return nil, false
@@ -231,9 +227,8 @@ func firstIsCheckbox(container gast.Node) (*eastast.TaskCheckBox, bool) {
 	return nil, false
 }
 
-// isTaskList retourne vrai si tous les items de la liste commencent par
-// une case à cocher GFM ("- [ ]" / "- [x]"), auquel cas on la rend comme
-// une macro Confluence <ac:task-list> plutôt qu'un <ul> classique.
+// isTaskList reports whether every list item starts with a GFM checkbox. Task
+// lists are rendered as Confluence <ac:task-list> macros.
 func isTaskList(v *gast.List) bool {
 	found := false
 	for c := v.FirstChild(); c != nil; c = c.NextSibling() {
@@ -249,7 +244,7 @@ func isTaskList(v *gast.List) bool {
 	return found
 }
 
-// renderTaskList transforme une liste de tâches GFM en macro Confluence
+// renderTaskList converts a GFM task list to a Confluence task-list macro.
 // <ac:task-list>.
 func (st *renderState) renderTaskList(v *gast.List) {
 	st.buf.WriteString("<ac:task-list>\n")
@@ -274,8 +269,8 @@ func (st *renderState) renderTaskList(v *gast.List) {
 		}
 		st.buf.WriteString(`</ac:task-body></ac:task>` + "\n")
 
-		// Blocs additionnels de l'item (sous-listes, etc.), rendus après
-		// le conteneur portant la case à cocher.
+		// Render additional item blocks, such as nested lists, after the
+		// checkbox container.
 		for extra := container.NextSibling(); extra != nil; extra = extra.NextSibling() {
 			st.renderBlock(extra)
 		}
@@ -324,12 +319,12 @@ func (st *renderState) renderMermaid(code string) {
 		return
 	}
 	if st.c.Mermaid == nil {
-		st.warn("bloc mermaid rendu en texte brut (aucun MermaidRenderer configuré)")
+		st.warn("Mermaid block rendered as plain text (no MermaidRenderer configured)")
 		st.renderCodeMacro("none", code)
 		return
 	}
 
-	name := "mermaid-" + hashShort(code) + ".png"
+	name := "mermaid-" + hashShort(code) + ".svg"
 	outDir := st.c.MermaidOutDir
 	if outDir == "" {
 		outDir = os.TempDir()
@@ -337,7 +332,7 @@ func (st *renderState) renderMermaid(code string) {
 	dest := filepath.Join(outDir, name)
 
 	if err := st.c.Mermaid.Render(code, dest); err != nil {
-		st.warn("échec du rendu mermaid (%s), le diagramme est inséré en bloc de code: %v", hashShort(code), err)
+		st.warn("Mermaid rendering failed (%s); diagram inserted as a code block: %v", hashShort(code), err)
 		st.renderCodeMacro("none", code)
 		return
 	}
@@ -387,10 +382,9 @@ func (st *renderState) renderInline(n gast.Node) {
 	switch v := n.(type) {
 	case *gast.Text:
 		st.buf.WriteString(escapeXML(string(v.Value(st.source))))
-		if v.SoftLineBreak() {
-			st.buf.WriteString(" ")
-		}
-		if v.HardLineBreak() {
+		// Treat a soft source newline as a visible line break. This matches the
+		// expectations of users writing Markdown manually or pasting from Word.
+		if v.SoftLineBreak() || v.HardLineBreak() {
 			st.buf.WriteString("<br/>\n")
 		}
 
@@ -433,11 +427,11 @@ func (st *renderState) renderInline(n gast.Node) {
 		st.renderImage(v)
 
 	case *gast.RawHTML:
-		st.warn("HTML inline brut ignoré")
+		st.warn("raw inline HTML ignored")
 
 	case *eastast.TaskCheckBox:
-		// Géré normalement en amont par renderTaskListItem ; si on arrive
-		// ici (checkbox non en tête d'item), on l'affiche en texte.
+		// Normally handled by renderTaskListItem. A checkbox elsewhere in an
+		// item is displayed as text.
 		if v.IsChecked {
 			st.buf.WriteString("☑ ")
 		} else {
@@ -461,8 +455,8 @@ func (st *renderState) renderImage(v *gast.Image) {
 		local = filepath.Join(st.c.BaseDir, local)
 	}
 	if _, err := os.Stat(local); err != nil {
-		st.warn("image locale introuvable, ignorée: %s", dest)
-		st.buf.WriteString(`<p><em>[image manquante: ` + escapeXML(dest) + `]</em></p>`)
+		st.warn("local image not found, ignored: %s", dest)
+		st.buf.WriteString(`<p><em>[missing image: ` + escapeXML(dest) + `]</em></p>`)
 		return
 	}
 

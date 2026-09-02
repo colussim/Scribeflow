@@ -1,4 +1,4 @@
-mermaid.min.js est téléchargé lors du build (voir Makefile / build.sh) et
-embarqué dans le binaire via go:embed. Ce fichier n'est pas versionné tel
-quel dans le dépôt : lancez `./scripts/fetch-mermaid.sh` avant `go build`
-si `mermaid.min.js` est absent de ce dossier.
+mermaid.min.js is downloaded during the build (see Makefile/build.sh) and
+embedded in the binary through go:embed. The generated file is not tracked in
+the repository. Run `./scripts/fetch-mermaid.sh` before `go build` when it is
+missing from this directory.
