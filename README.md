@@ -1,6 +1,12 @@
-# confluence-publish
+# ScribeFlow : Markdown Publisher for Confluence
 
-A small command-line tool (Go, a single binary, Windows + macOS) that publishes Markdown files directly as Confluence pages through the REST API.
+ScribeFlow is a command-line tool that publishes one or more Markdown files as
+Confluence pages through the REST API. It also uploads referenced local images
+and rendered Mermaid diagrams as Confluence attachments.
+
+The application is distributed as a single Go binary for Windows and macOS.
+
+Current release: **v1.0.0**.
 
 What it solves:
 
